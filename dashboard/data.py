@@ -1,13 +1,13 @@
 """Shared data, colours and layout helpers for every dashboard page.
 
-DATABASE RULE: no connection is ever kept open. Every read opens the DuckDB
-file READ-ONLY, loads what it needs and closes it straight away, so the
-pipeline scripts (ingest, clean, deg, battles, sim) can always write to it.
-Results are cached in memory; the sidebar "Reload data" button clears that.
+The data loading itself lives in src/queries.py (shared with the FastAPI backend in
+api/). This file adds Streamlit caching, error messages and the page layout.
+
+DATABASE RULE: no connection is ever kept open (see queries.read_only). Results are
+cached in memory; the sidebar "Reload data" button clears that.
 """
 
 import sys
-from contextlib import contextmanager
 from pathlib import Path
 
 import duckdb
@@ -19,29 +19,24 @@ import streamlit as st
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))  # so we can reuse the pipeline code
 
-import battles as battles_mod  # noqa: E402
-import config  # noqa: E402
-import sim  # noqa: E402
-import traffic as traffic_mod  # noqa: E402
+import battles as battles_mod  # noqa: E402,F401  (used by the pages as data.battles_mod)
+import config  # noqa: E402,F401
+import queries  # noqa: E402
+import sim  # noqa: E402,F401
+import traffic as traffic_mod  # noqa: E402,F401
 
-DB_PATH = ROOT / "data" / "f1.duckdb"
-SEASON = sim.SEASON
-
-# Tracks where cars can't pass: the sim's "no traffic" assumption breaks down.
-PROCESSIONAL = {"Monte Carlo"}
-# Replay mean absolute error above this = sim unreliable for that race. (Not rank
-# correlation: bunched races get a low one even when the error is tiny.)
-SIM_MAX_MAE_S = 15.0
+DB_PATH = queries.DB_PATH
+SEASON = queries.SEASON
+PROCESSIONAL = queries.PROCESSIONAL
+SIM_MAX_MAE_S = queries.SIM_MAX_MAE_S
+read_only = queries.read_only
+season_rows = queries.season_rows
+sim_reliability = queries.sim_reliability
 
 COMPOUND_COLORS = {"SOFT": "#FF3333", "MEDIUM": "#FFD12E", "HARD": "#E6E6E6",
                    "INTERMEDIATE": "#43B02A", "WET": "#2F7DE1"}
-GREY = "#8A8A8A"
-FALLBACK_TEAM_COLORS = {
-    "Mercedes": "#27F4D2", "Red Bull Racing": "#3671C6", "Ferrari": "#E8002D",
-    "McLaren": "#FF8000", "Aston Martin": "#229971", "Alpine": "#FF87BC",
-    "Williams": "#64C4FF", "Racing Bulls": "#6692FF", "Haas F1 Team": "#B6BABD",
-    "Audi": "#F2F2F2", "Cadillac": "#C9A227", "UNKNOWN": GREY,
-}
+GREY = queries.GREY
+FALLBACK_TEAM_COLORS = queries.FALLBACK_TEAM_COLORS
 
 # Design tokens (F1 TV broadcast style). Red is for active states, key numbers and
 # section markers only.
@@ -157,40 +152,9 @@ section[data-testid="stSidebar"] {{background: var(--surface); border-right: 1px
 # ---------------------------------------------------------------------------
 # Database access
 # ---------------------------------------------------------------------------
-@contextmanager
-def read_only():
-    """Open the database read-only and ALWAYS close it, even on errors."""
-    con = duckdb.connect(str(DB_PATH), read_only=True)
-    try:
-        yield con
-    finally:
-        con.close()
-
-
-TABLES = {
-    "races": "SELECT * FROM races",
-    "race_effects": "SELECT * FROM race_effects",
-    "tyre_deg": "SELECT * FROM tyre_deg",
-    "team_deg_season": "SELECT * FROM team_deg_season",
-    "teammate_deg_season": "SELECT * FROM teammate_deg_season",
-    "battles": "SELECT * FROM battles",
-    "strategies": "SELECT * FROM strategies",
-    "sim_replay": "SELECT * FROM sim_replay",
-    "sc_odds": "SELECT * FROM sc_circuit_odds",
-}
-
-
 @st.cache_data(show_spinner="Loading data...")
 def _load_all() -> dict[str, pd.DataFrame]:
-    out = {}
-    with read_only() as con:
-        for name, sql in TABLES.items():
-            try:
-                out[name] = con.execute(sql).df()
-            except duckdb.CatalogException:  # that pipeline step hasn't been run yet
-                out[name] = pd.DataFrame()
-        out["laps"] = con.execute(sim.LAPS_SQL, [SEASON]).df()  # incl. segment, is_clean
-    return out
+    return queries.load_all()
 
 
 def get() -> dict[str, pd.DataFrame]:
@@ -206,23 +170,20 @@ def get() -> dict[str, pd.DataFrame]:
 @st.cache_resource(show_spinner="Fitting the race models...")
 def models() -> dict:
     """Per race field models (same fit as deg.py), via sim.load_models."""
-    with read_only() as con:
-        return sim.load_models(con, SEASON)
+    return queries.load_models()
 
 
 def run_whatif(rnd: int, driver: str, plan: list[tuple[str, int]],
                red_flag_change: bool = True, red_flag_compound: str | None = None) -> dict:
     """Run a what-if with sim.run_whatif. Raises sim.WhatIfError on rule breaks."""
     m = models()  # fitted first, so only one connection is open at a time
-    with read_only() as con:
-        return sim.run_whatif(con, m, rnd, driver, plan, red_flag_change, red_flag_compound)
+    return queries.run_whatif(m, rnd, driver, plan, red_flag_change, red_flag_compound)
 
 
 def traffic(rnd: int, driver: str, blocker: str | None) -> dict:
     """Time lost in traffic (traffic.traffic_cost). Raises traffic_mod.TrafficError."""
     m = models()  # fitted first, so only one connection is open at a time
-    with read_only() as con:
-        return traffic_mod.traffic_cost(rnd, driver, blocker, con=con, models=m)
+    return queries.traffic(m, rnd, driver, blocker)
 
 
 def show_error(message: str, exc: BaseException | None = None) -> None:
@@ -240,50 +201,18 @@ def show_error(message: str, exc: BaseException | None = None) -> None:
 # ---------------------------------------------------------------------------
 @st.cache_resource(show_spinner=False)
 def _fastf1_team_colors(teams: tuple[str, ...]) -> dict[str, str]:
-    """Team colours from fastf1.plotting (needs a session, loaded light from cache)."""
-    colors = {}
-    try:
-        import fastf1
-        import fastf1.plotting
-        fastf1.Cache.configure(cache_dir=str(ROOT / "cache"))
-        fastf1.set_log_level("ERROR")
-        session = fastf1.get_session(SEASON, 1, "R")
-        session.load(laps=False, telemetry=False, weather=False, messages=False)
-        for team in teams:
-            try:
-                colors[team] = fastf1.plotting.get_team_color(team, session=session)
-            except Exception:  # team not known to fastf1: fallback map
-                pass
-    except Exception:  # no cache / offline: fallback map only
-        pass
-    return colors
+    return queries.fastf1_team_colors(teams)
 
 
 def team_colors(teams) -> dict[str, str]:
+    """team -> colour (lightened where too dark to see on the card surface)."""
     teams = tuple(sorted({t for t in teams if isinstance(t, str)}))
-    colors = {**FALLBACK_TEAM_COLORS, **_fastf1_team_colors(teams)}
-    colors["UNKNOWN"] = GREY  # e.g. HIR, who has no team in the data
-    return {t: colors.get(t, GREY) for t in list(teams) + ["UNKNOWN"]}
+    return queries.team_colors(teams, _fastf1_team_colors(teams))
 
 
 # ---------------------------------------------------------------------------
 # Layout helpers
 # ---------------------------------------------------------------------------
-def sim_reliability(sim_replay: pd.DataFrame, races: pd.DataFrame) -> dict[int, str | None]:
-    """round -> why the sim is unreliable there, or None if it's fine."""
-    mae = (sim_replay.groupby("round")["error_s"].apply(lambda e: e.abs().mean())
-           if not sim_replay.empty else pd.Series(dtype=float))
-    out = {}
-    for r in races.itertuples():
-        if r.circuit in PROCESSIONAL:
-            out[r.round] = "processional track: no overtaking means traffic decides, not strategy"
-        elif r.round in mae.index and mae[r.round] > SIM_MAX_MAE_S:
-            out[r.round] = f"replay error {mae[r.round]:.1f}s is over {SIM_MAX_MAE_S:.0f}s"
-        else:
-            out[r.round] = None
-    return out
-
-
 def setup_page(title: str) -> None:
     st.set_page_config(page_title=f"{title} · PITWALL", page_icon="🏁", layout="wide")
     st.markdown(CSS, unsafe_allow_html=True)
@@ -364,6 +293,3 @@ def plotly_layout(fig, height: int = 450):
     fig.update_layout(template="plotly_dark+pitwall", height=height)
     return fig
 
-
-def season_rows(df: pd.DataFrame) -> pd.DataFrame:
-    return df[df["season"] == SEASON] if "season" in df.columns else df

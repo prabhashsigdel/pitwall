@@ -55,16 +55,8 @@ def stint_figure() -> go.Figure:
     tick = {r.driver: f"<span style='color:{team_colors.get(r.team or 'UNKNOWN', data.GREY)}'>▌</span> "
                       f"{label[r.driver]}" for r in order.itertuples()}
 
-    ordered = race_laps.sort_values("lap_number")
-    st_df = (ordered.groupby(["driver", "stint"])
-             .agg(start=("lap_number", "min"), end=("lap_number", "max"),
-                  compound=("compound", lambda s: s.mode().iloc[0] if s.notna().any() else "UNKNOWN"),
-                  age=("tyre_life", "first"), ended_red=("red", "last"))
-             .reset_index())
-    # A stint whose PREVIOUS stint ended under a red flag got its tyres during the red flag.
-    st_df["red_fitted"] = st_df.groupby("driver")["ended_red"].shift(fill_value=False).astype(bool)
+    st_df = data.queries.stints(race_laps)  # shared with the API
     st_df = st_df[st_df["driver"].isin(label)]
-    st_df["length"] = st_df["end"] - st_df["start"] + 1
 
     fig = go.Figure()
     for comp in DRY + ["INTERMEDIATE", "WET", "UNKNOWN"]:
@@ -207,13 +199,7 @@ if b.empty:
     st.info("No battles for this race (run src/battles.py).")
     st.stop()
 
-TYPE_WORDS = {"undercut_window": "Undercut window", "offset": "Offset",
-              "no_response": "No response", "red_flag_response": "Red flag response"}
-RESULT_WORDS = {"undercut_success": "Undercut worked", "undercut_failed": "Undercut failed",
-                "cover_success": "Cover worked", "overcut_success": "Overcut worked",
-                "later_passed": "Later stopper passed", "later_gained": "Later stopper gained",
-                "later_lost": "Later stopper lost"}
-GOOD, BAD = ("worked", "gained", "passed"), ("failed", "lost")
+TYPE_WORDS, RESULT_WORDS = data.queries.TYPE_WORDS, data.queries.RESULT_WORDS
 
 c1, c2, c3, c4 = st.columns([4, 1.3, 1.3, 1.3], vertical_alignment="center")
 present = [TYPE_WORDS[x] for x in TYPE_WORDS if x in set(b["battle_type"])]
@@ -245,11 +231,8 @@ view = pd.DataFrame({
 
 
 def result_color(v: str) -> str:
-    if any(w in v for w in GOOD):
-        return "color: #7DDC66; font-weight: 600"
-    if any(w in v for w in BAD):
-        return "color: #FF6B66; font-weight: 600"
-    return "color: #9A9AA5"
+    return {"good": "color: #7DDC66; font-weight: 600", "bad": "color: #FF6B66; font-weight: 600",
+            "neutral": "color: #9A9AA5"}[data.queries.result_tone(v)]
 
 
 styled = (view.style.map(result_color, subset=["Result"])
