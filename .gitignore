@@ -5,3 +5,4 @@ __pycache__/
 CLAUDE.md
 .claude/
 data/*.duckdb.wal
+outputs/

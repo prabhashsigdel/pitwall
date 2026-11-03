@@ -42,6 +42,13 @@ def build_sql() -> str:
     fuel = float(config.FUEL_EFFECT_PER_LAP)
     traffic = float(config.TRAFFIC_GAP_S)
     outlier = float(config.OUTLIER_PCT)
+    race_outlier = float(config.RACE_OUTLIER_PCT)
+    min_stint = int(config.MIN_STINT_LAPS_FOR_MEDIAN)
+    # A lap is an outlier if EITHER check says so (a NULL median = no verdict):
+    #   stint check: > OUTLIER_PCT slower than the driver's stint median
+    #   race check:  > RACE_OUTLIER_PCT slower than the driver's whole-race median
+    outlier_expr = (f"(COALESCE(p.lap_time > m.stint_median * (1 + {outlier}), false)"
+                    f" OR COALESCE(p.lap_time > rm.race_median * (1 + {race_outlier}), false))")
 
     return f"""
 CREATE OR REPLACE TABLE clean_laps AS
@@ -132,11 +139,23 @@ pre_clean AS (
 
 -- 7. Each driver's median lap per stint, using ONLY laps that passed every
 --    other flag. That way SC laps and pit laps don't drag the median up.
+--    Stints with fewer than {min_stint} such laps get no median: with 1-2
+--    laps the "median" is the bad lap itself, so the check can't catch it.
 stint_medians AS (
     SELECT season, round, driver, stint, MEDIAN(lap_time) AS stint_median
     FROM pre_clean
     WHERE passes_other_flags
     GROUP BY season, round, driver, stint
+    HAVING count(*) >= {min_stint}
+),
+
+-- 7b. Backup: each driver's median lap over the WHOLE race (same laps).
+--     Always available as long as the driver has any lap passing the flags.
+race_medians AS (
+    SELECT season, round, driver, MEDIAN(lap_time) AS race_median
+    FROM pre_clean
+    WHERE passes_other_flags
+    GROUP BY season, round, driver
 )
 
 -- 8. Final table: raw columns, then the extras, then the flags.
@@ -154,17 +173,16 @@ SELECT
 
     p.is_lap1, p.is_pit_in, p.is_pit_out, p.is_sc_vsc, p.is_restart,
     p.is_inaccurate, p.is_deleted, p.is_wet, p.is_traffic, p.is_missing_data,
-    -- Only flags SLOW laps. NULL median (no clean laps in the stint) or NULL
-    -- lap_time means we can't tell, so the flag stays false.
-    COALESCE(p.lap_time > m.stint_median * (1 + {outlier}), false) AS is_outlier,
+    -- Only flags SLOW laps. NULL median or NULL lap_time = can't tell = false.
+    {outlier_expr} AS is_outlier,
 
-    p.passes_other_flags
-        AND NOT COALESCE(p.lap_time > m.stint_median * (1 + {outlier}), false)
-                                                               AS is_clean
+    p.passes_other_flags AND NOT {outlier_expr}                AS is_clean
 FROM pre_clean p
 LEFT JOIN stint_medians m
   ON  p.season = m.season AND p.round = m.round
   AND p.driver = m.driver AND p.stint = m.stint
+LEFT JOIN race_medians rm
+  ON  p.season = rm.season AND p.round = rm.round AND p.driver = rm.driver
 ORDER BY p.season, p.round, p.driver, p.lap_number
 """
 
@@ -237,11 +255,37 @@ def print_example_stint(con: duckdb.DuckDBPyConnection) -> None:
     print(df.to_string(index=False, float_format=lambda x: f"{x:.3f}"))
 
 
+def snapshot_previous(con: duckdb.DuckDBPyConnection) -> bool:
+    """Copy the previous run's flags into a temp table (gone when we close)."""
+    try:
+        con.execute("""CREATE OR REPLACE TEMP TABLE prev_clean AS
+                       SELECT season, round, driver, lap_number, is_outlier, is_clean
+                       FROM clean_laps""")
+        return True
+    except duckdb.Error:  # first run: no clean_laps yet
+        return False
+
+
+def print_vs_previous(con: duckdb.DuckDBPyConnection) -> None:
+    before, after, new_out, gone_out = con.execute("""
+        SELECT count(*) FILTER (WHERE p.is_clean), count(*) FILTER (WHERE c.is_clean),
+               count(*) FILTER (WHERE c.is_outlier AND NOT p.is_outlier),
+               count(*) FILTER (WHERE p.is_outlier AND NOT c.is_outlier)
+        FROM clean_laps c
+        JOIN prev_clean p USING (season, round, driver, lap_number)
+    """).fetchall()[0]
+    print(f"vs previous run: clean laps {before} -> {after} ({after - before:+d}); "
+          f"new outliers {new_out}, no longer outliers {gone_out}\n")
+
+
 def main() -> None:
     sys.stdout.reconfigure(errors="replace")  # Windows console + accented names
     con = db.connect()
+    had_previous = snapshot_previous(con)
     build_clean_laps(con)
     print("Rebuilt clean_laps.\n")
+    if had_previous:
+        print_vs_previous(con)
     print_overall(con)
     print_flag_counts(con)
     print_per_race(con)
