@@ -452,6 +452,14 @@ def build_all(con) -> dict:
     con.execute(STRATEGIES_SQL)
     tables["strategies"] = con.execute("SELECT * FROM strategies").df()
     tables["laps"] = laps
+    # Each driver's baseline pace from the race's final field fit (battles.py
+    # uses B minus A as the car pace difference; segment offsets are shared
+    # by all drivers, so they cancel out of that difference).
+    base_rows = [{"season": int(se), "round": int(rn), "driver": name[len("driver_"):],
+                  "baseline_s": float(v)}
+                 for (se, rn), (res, _) in fits.items() if res is not None
+                 for name, v in res.params.items() if name.startswith("driver_")]
+    tables["driver_baselines"] = save(con, "driver_baselines", base_rows)
     tables["fits"] = fits
     tables["fuel_fallback"] = fallback
     return tables

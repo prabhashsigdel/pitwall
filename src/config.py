@@ -58,3 +58,14 @@ MIN_STINT_LAPS_FOR_MEDIAN = 5
 # ...and a backup check always runs: more than this fraction slower than the
 # driver's median clean lap for the whole race is an outlier.
 RACE_OUTLIER_PCT = 0.15
+
+# ---------------------------------------------------------------------------
+# Pit battles (battles.py)
+# ---------------------------------------------------------------------------
+BATTLE_GAP_S = 3.0        # cars within this gap (same lap) before A's stop are a battle
+TREND_LAPS = 5            # laps before A's stop used for the gap trend
+TREND_THRESHOLD = 0.1     # s/lap change in the gap that counts as closing / dropping
+UNDERCUT_MAX_LAPS = 5     # B responding within this many laps = undercut window
+STICK_LAPS = 3            # laps after the judged lap to check if the result held
+MIN_STOP_LAP = 5          # stops before this lap (damage, lap-1 chaos) are left out of stats
+PIT_LOSS_SUSPICIOUS_S = 5.0  # |pit_loss_diff| above this: look for a penalty in race control
