@@ -389,13 +389,23 @@ SELECT p.season, p.round, p.driver, p.team,
        count(*) FILTER (WHERE s.ended_by_red)                AS red_flag_tyre_changes,
        string_agg(s.letter, '-' ORDER BY s.stint)            AS compound_sequence,
        string_agg(s.n_laps::VARCHAR, '-' ORDER BY s.stint)   AS stint_lengths,
+       -- Official classification from race_results (includes time penalties and is
+       -- right in red flag races); the last-lap position only if there's no result.
+       CASE WHEN rr.status IS NOT NULL
+            THEN CASE WHEN rr.status IN ('Finished', 'Lapped') THEN rr.position END
+            WHEN COALESCE(p.last_lap_end >= w.finish_time - 0.001, false) THEN p.last_position
+       END                                                   AS finish_position,
+       -- Where they crossed the line on track (before penalties).
        CASE WHEN COALESCE(p.last_lap_end >= w.finish_time - 0.001, false)
-            THEN p.last_position END                         AS finish_position,
-       COALESCE(p.last_lap_end >= w.finish_time - 0.001, false) AS finished
+            THEN p.last_position END                         AS finish_on_track,
+       COALESCE(rr.status IN ('Finished', 'Lapped'),
+                p.last_lap_end >= w.finish_time - 0.001, false) AS finished
 FROM per_driver p
 JOIN stints s USING (season, round, driver)
 JOIN winner w USING (season, round)
-GROUP BY p.season, p.round, p.driver, p.team, p.last_position, p.last_lap_end, w.finish_time
+LEFT JOIN race_results rr ON rr.season = p.season AND rr.round = p.round AND rr.driver = p.driver
+GROUP BY p.season, p.round, p.driver, p.team, p.last_position, p.last_lap_end, w.finish_time,
+         rr.status, rr.position
 ORDER BY p.season, p.round, finish_position NULLS LAST, p.driver
 """
 

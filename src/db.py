@@ -91,6 +91,20 @@ CREATE TABLE IF NOT EXISTS race_control (
     message  VARCHAR,
     flag     VARCHAR
 );
+
+-- Official classification, filled by results.py from FastF1 session results.
+CREATE TABLE IF NOT EXISTS race_results (
+    season              INTEGER,
+    round               INTEGER,
+    driver              VARCHAR,
+    team                VARCHAR,
+    position            INTEGER,
+    classified_position VARCHAR,   -- '1', '2', ... or 'R' (retired), 'D', ...
+    status              VARCHAR,   -- 'Finished', 'Lapped', 'Retired', ...
+    laps                INTEGER,
+    gap_to_winner_s     DOUBLE,    -- lead-lap finishers only
+    total_time_s        DOUBLE     -- winner's race time + gap; lead-lap finishers only
+);
 """
 
 

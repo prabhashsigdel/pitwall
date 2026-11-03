@@ -1,0 +1,18 @@
+[theme]
+base = "dark"
+primaryColor = "#E10600"              # F1 red: active states only
+backgroundColor = "#0B0B0F"
+secondaryBackgroundColor = "#15151E"
+textColor = "#F2F2F2"
+# Titillium Web for all Streamlit text (icons keep their own font). Loaded from Google Fonts.
+font = "Titillium Web:https://fonts.googleapis.com/css2?family=Titillium+Web:wght@400;600;700;900&display=swap, sans-serif"
+baseFontSize = 16
+
+[client]
+toolbarMode = "minimal"               # no Deploy button / developer menu
+
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false
