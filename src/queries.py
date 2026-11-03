@@ -44,6 +44,10 @@ TABLES = {
     "strategies": "SELECT * FROM strategies",
     "sim_replay": "SELECT * FROM sim_replay",
     "sc_odds": "SELECT * FROM sc_circuit_odds",
+    # for battle outliers (src/outliers.py)
+    "race_results": "SELECT * FROM race_results",
+    "race_control": "SELECT season, round, lap, message FROM race_control",
+    "cliff_flags": "SELECT * FROM cliff_flags",
 }
 
 # Battle labels in plain words (battles.py stores codes).

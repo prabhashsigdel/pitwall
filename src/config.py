@@ -69,3 +69,4 @@ UNDERCUT_MAX_LAPS = 5     # B responding within this many laps = undercut window
 STICK_LAPS = 3            # laps after the judged lap to check if the result held
 MIN_STOP_LAP = 5          # stops before this lap (damage, lap-1 chaos) are left out of stats
 PIT_LOSS_SUSPICIOUS_S = 5.0  # |pit_loss_diff| above this: look for a penalty in race control
+OUTLIER_GAIN_S = 30.0     # |gap change| above this: battle is an outlier (src/outliers.py)

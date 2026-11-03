@@ -127,12 +127,14 @@ def race_deg(rnd: int) -> schemas.Deg:
 def race_battles(rnd: int,
                  hide_sc: bool = Query(True, description="hide battles with a SC/VSC in the window"),
                  hide_teammates: bool = Query(True, description="hide teammate battles"),
-                 hide_early: bool = Query(True, description="hide stops before the minimum stop lap")
+                 hide_early: bool = Query(True, description="hide stops before the minimum stop lap"),
+                 hide_outliers: bool = Query(True, description="hide outliers (retired, lapped, penalty, "
+                                                                "damage, gap change over 30s)")
                  ) -> schemas.Battles:
     """Pit stop battles with the result in plain words and the gap breakdown."""
     t = cache.tables()
     race_row(t, rnd)
-    return race.battles(t, cache.team_colors(), rnd, hide_sc, hide_teammates, hide_early)
+    return race.battles(t, cache.team_colors(), rnd, hide_sc, hide_teammates, hide_early, hide_outliers)
 
 
 @app.get("/api/races/{rnd}/traffic", response_model=schemas.Traffic)

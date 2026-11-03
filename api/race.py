@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 
 import config
+import outliers
 import queries
 from api import schemas
 
@@ -252,12 +253,20 @@ def breakdown(r) -> schemas.Breakdown | None:
     return schemas.Breakdown(**parts, total=total)
 
 
+def of_round(df: pd.DataFrame, rnd: int) -> pd.DataFrame:
+    """This season's rows of one round (an empty table stays empty)."""
+    df = queries.season_rows(df)
+    return df[df["round"] == rnd] if not df.empty else df
+
+
 def battles(t: dict, colors: dict, rnd: int, hide_sc: bool, hide_teammates: bool,
-            hide_early: bool) -> schemas.Battles:
-    b = queries.season_rows(t["battles"])
-    b = b[b["round"] == rnd] if not b.empty else b
+            hide_early: bool, hide_outliers: bool) -> schemas.Battles:
+    b = outliers.flag_outliers(of_round(t["battles"], rnd), race_laps(t, rnd), of_round(t["race_results"], rnd),
+                               of_round(t["race_control"], rnd), of_round(t["cliff_flags"], rnd))
     total = len(b)
     if not b.empty:
+        if hide_outliers:
+            b = b[~b["outlier"]]
         if hide_sc:
             b = b[~b["sc_vsc_in_window"].astype(bool)]
         if hide_teammates:
@@ -277,7 +286,8 @@ def battles(t: dict, colors: dict, rnd: int, hide_sc: bool, hide_teammates: bool
             gap_before_text=gap_text(r.a_driver, r.gap_before), gap_after_text=gap_text(r.a_driver, r.gap_after),
             gained=num(r.gap_change), stuck=flag(r.stuck), gap_trend=text(r.gap_trend),
             sc_window=bool(r.sc_vsc_in_window), teammates=bool(r.teammates),
-            early_stop=bool(getattr(r, "early_stop", False)), breakdown=breakdown(r),
+            early_stop=bool(getattr(r, "early_stop", False)),
+            outlier=bool(r.outlier), outlier_reason=r.outlier_reason, breakdown=breakdown(r),
             notes=[n for n in (text(getattr(r, c, None)) for c in ("expected_gain_note", "car_pace_note", "pit_note"))
                    if n]))
     return schemas.Battles(round=rnd, total=total, battles=rows)

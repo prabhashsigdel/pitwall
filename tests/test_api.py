@@ -161,21 +161,45 @@ def test_deg_matches_tyre_deg_table(client, rnd):
 # ---------------------------------------------------------------------------
 # battles
 # ---------------------------------------------------------------------------
+ALL = "hide_sc=false&hide_teammates=false&hide_early=false&hide_outliers=false"
+
+
 @pytest.mark.parametrize("rnd", ROUNDS)
 def test_battles_counts_and_filters(client, rnd):
     (n_all,) = sql("SELECT count(*) FROM battles WHERE season = ? AND round = ?", SEASON, rnd)[0]
-    (n_default,) = sql("SELECT count(*) FROM battles WHERE season = ? AND round = ? AND NOT sc_vsc_in_window "
-                       "AND NOT teammates AND NOT early_stop", SEASON, rnd)[0]
-    everything = client.get(f"/api/races/{rnd}/battles?hide_sc=false&hide_teammates=false&hide_early=false").json()
+    (n_filtered,) = sql("SELECT count(*) FROM battles WHERE season = ? AND round = ? AND NOT sc_vsc_in_window "
+                        "AND NOT teammates AND NOT early_stop", SEASON, rnd)[0]
+    everything = client.get(f"/api/races/{rnd}/battles?{ALL}").json()
+    keep_outliers = client.get(f"/api/races/{rnd}/battles?hide_outliers=false").json()
     default = client.get(f"/api/races/{rnd}/battles").json()
     assert everything["total"] == n_all and len(everything["battles"]) == n_all
-    assert len(default["battles"]) == n_default
-    assert not any(b["sc_window"] or b["teammates"] or b["early_stop"] for b in default["battles"])
+    assert len(keep_outliers["battles"]) == n_filtered
+    assert len(default["battles"]) == sum(not b["outlier"] for b in keep_outliers["battles"])
+    assert not any(b["sc_window"] or b["teammates"] or b["early_stop"] or b["outlier"] for b in default["battles"])
+
+
+@pytest.mark.parametrize("rnd", ROUNDS)
+def test_outlier_flags(client, rnd):
+    battles = client.get(f"/api/races/{rnd}/battles?{ALL}").json()["battles"]
+    retired = {d for (d,) in sql("SELECT driver FROM race_results WHERE season = ? AND round = ? "
+                                 "AND status NOT IN ('Finished', 'Lapped')", SEASON, rnd)}
+    for b in battles:
+        assert b["outlier"] == (b["outlier_reason"] is not None)
+        if b["gained"] is not None and abs(b["gained"]) > 30:
+            assert b["outlier"] and "over 30s" in b["outlier_reason"]
+        for drv in (b["attacker"], b["defender"]):
+            if f"{drv} retired" in (b["outlier_reason"] or ""):
+                assert drv in retired
+
+
+def test_round19_has_retirement_outliers(client):
+    battles = client.get(f"/api/races/19/battles?{ALL}").json()["battles"]
+    assert any("retired" in (b["outlier_reason"] or "") for b in battles)
 
 
 @pytest.mark.parametrize("rnd", ROUNDS)
 def test_battle_numbers_match_database(client, rnd):
-    body = client.get(f"/api/races/{rnd}/battles?hide_sc=false&hide_teammates=false&hide_early=false").json()
+    body = client.get(f"/api/races/{rnd}/battles?{ALL}").json()
     db_rows = sql("SELECT a_driver, b_driver, a_in_lap, gap_change, pit_loss_diff, expected_tyre_gain, "
                   "car_pace_gain, unexplained FROM battles WHERE season = ? AND round = ?", SEASON, rnd)
     by_key = {(a, b, lap): rest for a, b, lap, *rest in db_rows}

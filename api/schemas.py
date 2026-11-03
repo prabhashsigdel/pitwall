@@ -168,6 +168,8 @@ class Battle(BaseModel):
     sc_window: bool
     teammates: bool
     early_stop: bool
+    outlier: bool = Field(description="result driven by something other than strategy (see outlier_reason)")
+    outlier_reason: str | None = Field(description='e.g. "gap changed 72.8s (over 30s); BOT retired"')
     breakdown: Breakdown | None
     notes: list[str]
 

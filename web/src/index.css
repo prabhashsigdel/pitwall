@@ -1,0 +1,125 @@
+@import "tailwindcss";
+
+/* Design tokens: F1 broadcast style. Every colour used anywhere comes from here. */
+@theme {
+  --color-bg: #0b0b0f;
+  --color-surface: #15151e;
+  --color-inner: #0f0f16;
+  --color-line: #2a2a35;
+  --color-text: #f2f2f2;
+  --color-muted: #9a9aa5; /* 6.5:1 on surface */
+
+  /* Accent red, used sparingly. #E10600 is only 3.7:1 on the surface: fine for lines,
+     borders and markers (>= 3:1), too dark for small text. Red TEXT uses accent-text. */
+  --color-accent: #e10600;
+  --color-accent-text: #ff4a40; /* 5.5:1 on surface */
+
+  --color-soft: #ff3b30;
+  --color-medium: #ffd12e;
+  --color-hard: #e9e9ef;
+  --color-inter: #43b02a;
+  --color-wet: #2f7de1;
+
+  --color-good: #5be38a;
+  --color-bad: #ff6b66;
+  --color-warn: #ffd84d;
+
+  /* Dark label text drawn ON compound colours (stint bars). Same in both themes. */
+  --color-ink: #0b0b0f;
+
+  --font-sans: "Titillium Web", system-ui, sans-serif;
+
+  /* One strong ease-out for every UI transition (the built-in curves are too weak). */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+
+  --animate-pulse-soft: pulse-soft 1.4s ease-in-out infinite;
+  @keyframes pulse-soft {
+    50% {
+      opacity: 0.55;
+    }
+  }
+}
+
+/* Light theme: same token names, so every component switches with no extra classes.
+   Text tokens >= 4.5:1 and graphic colours >= 3:1 on white; ink labels stay >= 4.5:1
+   on every compound colour. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --color-bg: #f3f3f6;
+  --color-surface: #ffffff;
+  --color-inner: #eeeef2;
+  --color-line: #d6d6de;
+  --color-text: #15151e;
+  --color-muted: #5e5e6b;
+  --color-accent: #e10600;
+  --color-accent-text: #c80500;
+  --color-soft: #f0332a;
+  --color-medium: #b88a00;
+  --color-hard: #8b8b96;
+  --color-inter: #3a9a22;
+  --color-wet: #3b7fdb;
+  --color-good: #18794a;
+  --color-bad: #c42b26;
+  --color-warn: #8a5f00;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+    background: var(--color-bg);
+  }
+
+  body {
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    font-variant-numeric: tabular-nums; /* numbers line up in every column */
+    -webkit-font-smoothing: antialiased;
+    min-height: 100dvh;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent-text);
+    outline-offset: 2px;
+  }
+
+  select {
+    font: inherit;
+  }
+}
+
+@layer components {
+  /* Anything pressable confirms the press straight away. */
+  .pressable {
+    transition:
+      transform 160ms var(--ease-out),
+      border-color 150ms ease,
+      background-color 150ms ease;
+  }
+  .pressable:active {
+    transform: scale(0.97);
+  }
+
+  /* Tyres fitted during a red flag: diagonal stripes over the compound colour. */
+  .striped {
+    background-image: repeating-linear-gradient(
+      135deg,
+      rgb(11 11 15 / 0.55) 0 3px,
+      transparent 3px 7px
+    );
+  }
+}
+
+/* Reduced motion: no movement, keep quick colour feedback. */
+@media (prefers-reduced-motion: reduce) {
+  .pressable,
+  .pressable:active {
+    transform: none;
+    transition:
+      border-color 150ms ease,
+      background-color 150ms ease;
+  }
+  .animate-pulse-soft {
+    animation: none;
+  }
+}

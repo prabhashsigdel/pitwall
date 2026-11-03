@@ -6,3 +6,5 @@ CLAUDE.md
 .claude/
 data/*.duckdb.wal
 outputs/
+node_modules/
+web/dist/
